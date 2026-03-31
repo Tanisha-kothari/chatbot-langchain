@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 class ChatRequest(BaseModel):
     message: str
+    sid: str
 
 # Load env
 load_dotenv()
@@ -78,7 +79,7 @@ async def chat(req: ChatRequest):
 
     #sending only the last 5 rounds of conversation to the model to keep it within context limits, 
     # can be adjusted as needed
-    response = chain.invoke({"question": chathistory[sid][-5:]})
+    response = chain.invoke({chathistory[sid][-5:]})
 
     chathistory[sid].append({"role": "assistant", "content": response})
     return {"response": response}
