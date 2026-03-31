@@ -10,16 +10,21 @@ from langchain_mistralai.chat_models import ChatMistralAI
 
 from pydantic import BaseModel
 
+# ------------------ Request Model ------------------
 class ChatRequest(BaseModel):
     message: str
-    sid: str
+    sid: str   # ✅ consistent naming
 
-# Load env
+# ------------------ Load ENV ------------------
 load_dotenv()
 
+mistral_apikey = os.getenv("MISTRAL_API_KEY")
+if not mistral_apikey:
+    raise ValueError("MISTRAL_API_KEY is not set")
+
+# ------------------ App Init ------------------
 app = FastAPI()
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -28,58 +33,59 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# API key
-mistral_apikey = os.getenv("MISTRAL_API_KEY")
-
-# Model
+# ------------------ Model ------------------
 model = ChatMistralAI(
     mistral_api_key=mistral_apikey
 )
 
-# Prompt
+# ------------------ Prompt ------------------
 prompt = """You are a thoughtful, intelligent, and human-like assistant.
 
 Your communication style:
-- Speak naturally like a real person, not like a report or document.
-- Avoid excessive formatting like headings, bullet points, or numbered sections unless absolutely necessary.
-- Keep responses clear, direct, and conversational.
-- Be supportive and insightful, but not overly dramatic or philosophical.
-- Do not over-structure answers. Prefer short paragraphs over lists.
-
-Guidelines:
-- If the user expresses doubt or emotion, respond with understanding first, then gently guide them.
-- Give practical advice without sounding like a textbook.
-- Avoid robotic phrases like "Here’s a structured breakdown".
-- Keep answers concise unless the user asks for detail.
-
-Your goal is to feel like a smart, calm, and trustworthy human conversation partner."""
+- Speak naturally like a real person
+- Avoid excessive formatting
+- Keep responses conversational and clear
+- Be helpful but not robotic
+"""
 
 prompt_template = ChatPromptTemplate.from_messages([
     ("system", prompt),
-    ("user", "Question: {question}")
+    ("user", "Conversation:\n{question}")
 ])
 
-# Parser
 parser = StrOutputParser()
-
-# Chain 
 chain = prompt_template | model | parser
 
+# ------------------ Memory ------------------
 chathistory = {}
 
+# ------------------ Endpoint ------------------
 @app.post("/chat")
 async def chat(req: ChatRequest):
     question = req.message
-    sid = req.SID
+    sid = req.sid   # ✅ fixed
 
     if sid not in chathistory:
         chathistory[sid] = []
 
+    # store user message
     chathistory[sid].append({"role": "user", "content": question})
 
-    #sending only the last 5 rounds of conversation to the model to keep it within context limits, 
-    # can be adjusted as needed
-    response = chain.invoke({chathistory[sid][-5:]})
+    # take last 5 messages
+    history = chathistory[sid][-5:]
 
+    # format conversation
+    conversation = ""
+    for msg in history:
+        role = "User" if msg["role"] == "user" else "Assistant"
+        conversation += f"{role}: {msg['content']}\n"
+
+    # invoke model
+    response = chain.invoke({
+        "question": conversation + f"User: {question}"
+    })
+
+    # store response
     chathistory[sid].append({"role": "assistant", "content": response})
+
     return {"response": response}

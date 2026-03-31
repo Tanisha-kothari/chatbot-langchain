@@ -1,26 +1,38 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import "./App.css";
 
 function App() {
-  // 🔹 State 1: input box
+  // ------------------ State ------------------
   const [message, setMessage] = useState("");
-
-  // 🔹 State 2: chat history
   const [chat, setChat] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-  const sessionID = localStorage.getItem("SID") || crypto.randomUUID();
-  localStorage.setItem("SID", sessionID);
+  // ------------------ Stable Session ID ------------------
+  const [sessionID] = useState(() => {
+    const existing = localStorage.getItem("SID");
+    if (existing) return existing;
 
-  // 🔹 Send message to backend
+    const newID = crypto.randomUUID();
+    localStorage.setItem("SID", newID);
+    return newID;
+  });
+
+  // ------------------ Auto Scroll ------------------
+  const chatEndRef = useRef(null);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chat, loading]);
+
+  // ------------------ Send Message ------------------
   const sendMessage = async () => {
     if (!message.trim()) return;
 
     const userMsg = { role: "user", text: message };
 
-    // add user message first
     setChat((prev) => [...prev, userMsg]);
-
-
+    setMessage("");
+    setLoading(true);
 
     try {
       const res = await fetch("https://chatbot-langchain-edl0.onrender.com/chat", {
@@ -28,24 +40,34 @@ function App() {
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ 
-          "message": message,
-          "SID" : sessionID })
+        body: JSON.stringify({
+          message: message,
+          sid: sessionID   // ✅ fixed key
+        })
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
+
+      if (!data || !data.response) {
+        throw new Error("Invalid response");
+      }
 
       const botMsg = { role: "bot", text: data.response };
 
-      // add bot response
       setChat((prev) => [...prev, botMsg]);
     } catch (error) {
       console.error(error);
+
+      setChat((prev) => [
+        ...prev,
+        { role: "bot", text: "Something went wrong 😅" }
+      ]);
     }
 
-    setMessage("");
+    setLoading(false);
   };
 
+  // ------------------ UI ------------------
   return (
     <div className="app">
       <h1>💬 AI Chatbot</h1>
@@ -59,12 +81,17 @@ function App() {
             {msg.text}
           </div>
         ))}
+
+        {loading && <div className="bot-msg">Typing...</div>}
+
+        <div ref={chatEndRef} />
       </div>
 
       <div className="input-box">
         <input
           value={message}
           onChange={(e) => setMessage(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && sendMessage()}
           placeholder="Type your message..."
         />
         <button onClick={sendMessage}>Send</button>
